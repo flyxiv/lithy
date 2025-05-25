@@ -4,13 +4,11 @@ import os
 from pathlib import Path
 from trl import SFTConfig, SFTTrainer
 from datasets import Dataset
-
+from accelerate import Accelerator, DeepSpeedPlugin, DistributedDataParallelKwargs
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 import torch
-print(f"CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA device count: {torch.cuda.device_count()}")
-    print(f"Current CUDA device: {torch.cuda.current_device()}")
-    print(f"Device name: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+
 
 def get_summarize_prompt(file_path):
     with open(file_path, 'r', encoding='UTF8') as f:
@@ -96,35 +94,21 @@ def get_summarize_prompt(file_path):
 def formatting_prompts_func(example):
     output_texts = []
     for i in range(len(example['prompt'])):
-        # KoAlpaca 프롬프트 템플릿 (모델에 따라 다름)
-        # text = f"### 명령어:\n다음 텍스트를 JSON으로 요약하고, 주요 정보를 추출하여 지정된 형식으로 구조화하세요.\n\n### 입력:\n{example['prompt'][i]}\n\n### 응답:\n{example['completion'][i]}"
-
-        # 더 일반적인 instruction 튜닝 프롬프트
-        # instruction = "주어진 텍스트를 분석하여 주요 정보를 추출하고, 다음 JSON 스키마에 맞춰 결과를 작성하세요: {\"title\": \"string\", \"summary\": \"string\", \"keywords\": [\"string\"]}"
-        # input_text = example['prompt'][i]
-        # response = example['completion'][i] # JSON 문자열
-        # text = f"아래는 작업을 설명하는 명령어와 추가 컨텍스트를 제공하는 입력입니다. 요청을 적절히 완료하는 응답을 작성하세요.\n\n### 명령어:\n{instruction}\n\n### 입력:\n{input_text}\n\n### 응답:\n{response}"
-
-        # 가장 간단한 방식: 프롬프트와 완료를 단순히 합치거나, 모델이 기대하는 특정 구분자 사용
-        # 실제로는 모델의 파인튜닝 방식에 맞는 정확한 템플릿을 사용해야 합니다.
-        # 예를 들어, 모델이 "질문: {질문}\n답변: {답변}" 형식으로 학습되었다면,
-        # text = f"프롬프트: {example['prompt'][i]}\nJSON 결과: {example['completion'][i]}"
-
-        # SFTTrainer가 처리할 수 있는 기본 형식 중 하나로 구성
-        # instruction 튜닝된 모델이라면, instruction -> input -> output 형식을 따릅니다.
-        # 여기서는 prompt가 instruction+input의 역할을 하고, completion이 output의 역할을 한다고 가정합니다.
-        # (이 부분은 사용하는 모델과 학습 방식에 따라 크게 달라집니다)
         text = f"Prompt: {example['prompt'][i]}\nCompletion: {example['completion'][i]}" # 매우 기본적인 예시
         output_texts.append(text)
     return output_texts
 
-
-
 if __name__ == "__main__":
+    data_dir = './lithy_dataset/raw_text'
+    label_dir = "./lithy_dataset/character_settings"
 
-
-    data_dir = './datasets/namu'
-    label_dir = "./datasets/namu_json"
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_storage=torch.bfloat16,
+    )
 
     prompts_list = list()
     completions_list = list()
@@ -139,25 +123,65 @@ if __name__ == "__main__":
 
         if not file_path.exists() or not json_file_path.exists():
             continue
-        
+
         prompts_list.append(get_summarize_prompt(file_path))
         with open(json_file_path, 'r', encoding='utf-8') as f:
             completion_content = json.load(f)
             completions_list.append(json.dumps(completion_content, ensure_ascii=False))
-    
+
     train_dataset = Dataset.from_dict({
         'prompt': prompts_list,
         'completion': completions_list
     })
 
-    training_args = SFTConfig(
-        output_dir="/tmp",
+    model_name = "beomi/KoAlpaca-Polyglot-5.8B"
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,
+        quantization_config=bnb_config
     )
+    model.config.use_cache = False
+    model = prepare_model_for_kbit_training(model)
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+
+    lora_config = LoraConfig(
+        r=16, # LoRA 랭크 (작을수록 메모리 적게, 클수록 학습 능력 좋음)
+        lora_alpha=32, # LoRA 스케일링 팩터
+        target_modules=[
+            "query_key_value", # 일반적으로 LLM의 QKV 레이어에 적용
+        ],
+        lora_dropout=0.05,
+        bias="none", # 일반적으로 bias는 학습하지 않습니다.
+        task_type="CAUSAL_LM", # 텍스트 생성 모델이므로 CAUSAL_LM
+    )
+
+    model = get_peft_model(model, lora_config)
+
+    training_args = SFTConfig(
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        output_dir="./distributed_output",
+        num_train_epochs=500,
+        learning_rate=2e-4,
+        fp16=True,
+        save_steps=500,
+        logging_steps=10,
+        gradient_checkpointing=True,
+        dataloader_pin_memory=False,
+        remove_unused_columns=False,
+    )
+
     trainer = SFTTrainer(
-        "beomi/KoAlpaca-Polyglot-5.8B",
+        model=model,
         train_dataset=train_dataset,
         formatting_func=formatting_prompts_func,
+        peft_config=lora_config,
         args=training_args,
     )
+
     trainer.train()
-    trainer.save_model("./sft_output/final_model")
+    trainer.save_model("./distributed_output/final_model")
