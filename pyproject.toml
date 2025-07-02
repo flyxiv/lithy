@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lithy"
+version = "0.1.0"
+description = "A fine-tuning project for LLM models"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.4.0",
+    "transformers>=4.51.3",
+    "datasets==3.3.2",
+    "accelerate==1.4.0",
+    "evaluate==0.4.3",
+    "bitsandbytes==0.44.1",
+    "peft==0.14.0",
+    "trl==0.15.2",
+    "sentencepiece",
+    "protobuf<4"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fine_tuning_script*", "llm_summarization*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black" 
