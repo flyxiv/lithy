@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Tiptap Editor Styles */
+.ProseMirror {
+  color: #1f2937 !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.ProseMirror h1 {
+  color: #111827 !important;
+  font-size: 2.5rem !important;
+  font-weight: 800 !important;
+  margin: 2rem 0 1.5rem 0 !important;
+  line-height: 1.1 !important;
+}
+
+.ProseMirror h2 {
+  color: #111827 !important;
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  margin: 1.75rem 0 1rem 0 !important;
+  line-height: 1.2 !important;
+}
+
+.ProseMirror p {
+  color: #1f2937 !important;
+  margin: 0.75rem 0 !important;
+  line-height: 1.6 !important;
+  font-size: 1rem !important;
+}
+
+.ProseMirror blockquote {
+  border-left: 4px solid #d1d5db !important;
+  padding-left: 1.5rem !important;
+  padding-right: 1rem !important;
+  margin: 1.5rem 0 1.5rem 1rem !important;
+  color: #6b7280 !important;
+  font-style: italic !important;
+  background-color: #f9fafb !important;
+  border-radius: 0 4px 4px 0 !important;
+  padding-top: 1rem !important;
+  padding-bottom: 1rem !important;
+}
+
+.ProseMirror blockquote p {
+  color: #6b7280 !important;
+  margin: 0.5rem 0 !important;
+}
+
+.ProseMirror strong {
+  color: #111827 !important;
+  font-weight: 600 !important;
+}
+
+.ProseMirror em {
+  color: #374151 !important;
+  font-style: italic !important;
+}
+
+.ProseMirror s {
+  color: #6b7280 !important;
+  text-decoration: line-through !important;
+}
+
+.ProseMirror:focus {
+  outline: none !important;
+}
